@@ -121,6 +121,29 @@ post '/create_payment_intent' do
   end
 
   begin
+    intent = Stripe::PaymentIntent.capture(params[:payment_intent_id])
+    intent.to_json
+  rescue Stripe::StripeError => e
+    status 400
+    log_info("Error capturing PaymentIntent: #{e.message}")
+  end
+  
+  begin
+    intent = Stripe::PaymentIntent.create({
+      amount: params[:amount],
+      currency: params[:currency],
+      payment_method_types: ['card_present'],
+      capture_method: 'manual',   # <-- AJOUT
+      # capture_method: 'manual',   # ← à décommenter et ajouter
+    })
+    { client_secret: intent.client_secret }.to_json
+  rescue Stripe::StripeError => e
+    status 400
+    log_info("Error creating PaymentIntent: #{e.message}")
+  end
+end
+
+  begin
     payment_intent = Stripe::PaymentIntent.create(
       :payment_method_types => params[:payment_method_types] || ['card_present'],
       :capture_method => params[:capture_method] || 'manual',
