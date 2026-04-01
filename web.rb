@@ -118,24 +118,45 @@ end
 # The example backend does not currently support connected accounts.
 # To create a PaymentIntent for a connected account, see
 # https://stripe.com/docs/terminal/features/connect#direct-payment-intents-server-side
+
 post '/create_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
     status 400
-    return log_info(validationError)
+    content_type :json
+    return { error: validationError }.to_json
   end
 
   begin
+    amount = params[:amount]
+    currency = params[:currency] || 'eur'
+
+    if amount.nil?
+      status 400
+      content_type :json
+      return { error: "Missing amount" }.to_json
+    end
+
     intent = Stripe::PaymentIntent.create({
-      amount: params[:amount],
-      currency: params[:currency],
+      amount: amount.to_i,
+      currency: currency,
       payment_method_types: ['card_present'],
       capture_method: 'manual',
     })
-    { client_secret: intent.client_secret }.to_json
+    content_type :json
+    status 200
+    return { client_secret: intent.client_secret }.to_json
+
   rescue Stripe::StripeError => e
     status 400
-    log_info("Error creating PaymentIntent: #{e.message}")
+    content_type :json
+    puts "Stripe error: #{e.message}"
+    return { error: "Stripe error: #{e.message}" }.to_json
+  rescue StandardError => e
+    status 500
+    content_type :json
+    puts "Internal error: #{e.message}"
+    return { error: "Internal error: #{e.message}" }.to_json
   end
 end
 
