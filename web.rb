@@ -36,6 +36,11 @@ get '/' do
   send_file 'index.html'
 end
 
+get '/ping' do
+  content_type :json
+  { status: 'ok', timestamp: Time.now.to_i }.to_json
+end
+
 def validateApiKey
   if Stripe.api_key.nil? || Stripe.api_key.empty?
     return "Error: you provided an empty secret key. Please provide your test mode secret key. For more information, see https://stripe.com/docs/keys"
