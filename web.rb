@@ -113,20 +113,39 @@ post '/capture_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
     status 400
-    return log_info(validationError)
+    content_type :json
+    return { error: validationError }.to_json
   end
 
   begin
+    # Lecture du corps JSON
     request_body = JSON.parse(request.body.read)
     intent_id = request_body['payment_intent_id']
+
+    if intent_id.nil? || intent_id.empty?
+      status 400
+      content_type :json
+      return { error: "Missing payment_intent_id" }.to_json
+    end
+
+    # Capture du PaymentIntent
     intent = Stripe::PaymentIntent.capture(intent_id)
-    intent.to_json
+    content_type :json
+    status 200
+    return intent.to_json
+
   rescue Stripe::StripeError => e
     status 400
-    log_info("Error capturing PaymentIntent: #{e.message}")
+    content_type :json
+    return { error: "Stripe error: #{e.message}" }.to_json
   rescue JSON::ParserError => e
     status 400
-    log_info("Invalid JSON: #{e.message}")
+    content_type :json
+    return { error: "Invalid JSON: #{e.message}" }.to_json
+  rescue StandardError => e
+    status 500
+    content_type :json
+    return { error: "Internal error: #{e.message}" }.to_json
   end
 end
 
