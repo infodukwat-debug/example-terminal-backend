@@ -123,18 +123,19 @@ post '/create_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
     status 400
-    content_type :json
-    return { error: validationError }.to_json
+    return log_info(validationError)
   end
 
   begin
-    amount = params[:amount]
-    currency = params[:currency] || 'eur'
+    # Lire le corps JSON si présent, sinon utiliser les paramètres classiques
+    request_body = JSON.parse(request.body.read) rescue {}
+    amount = request_body['amount'] || params[:amount]
+    currency = request_body['currency'] || params[:currency]
 
-    if amount.nil?
+    if amount.nil? || currency.nil?
       status 400
       content_type :json
-      return { error: "Missing amount" }.to_json
+      return { error: "Missing amount or currency" }.to_json
     end
 
     intent = Stripe::PaymentIntent.create({
@@ -144,19 +145,15 @@ post '/create_payment_intent' do
       capture_method: 'manual',
     })
     content_type :json
-    status 200
-    return { client_secret: intent.client_secret }.to_json
-
+    { client_secret: intent.client_secret }.to_json
   rescue Stripe::StripeError => e
     status 400
     content_type :json
-    puts "Stripe error: #{e.message}"
-    return { error: "Stripe error: #{e.message}" }.to_json
-  rescue StandardError => e
+    { error: "Stripe error: #{e.message}" }.to_json
+  rescue => e
     status 500
     content_type :json
-    puts "Internal error: #{e.message}"
-    return { error: "Internal error: #{e.message}" }.to_json
+    { error: "Internal error: #{e.message}" }.to_json
   end
 end
 
