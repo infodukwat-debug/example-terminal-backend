@@ -113,7 +113,29 @@ end
 # The example backend does not currently support connected accounts.
 # To create a PaymentIntent for a connected account, see
 # https://stripe.com/docs/terminal/features/connect#direct-payment-intents-server-side
+
 post '/create_payment_intent' do
+  validationError = validateApiKey
+  if !validationError.nil?
+    status 400
+    return log_info(validationError)
+  end
+
+  begin
+    intent = Stripe::PaymentIntent.create({
+      amount: params[:amount],
+      currency: params[:currency],
+      payment_method_types: ['card_present'],
+      capture_method: 'manual',
+    })
+    { client_secret: intent.client_secret }.to_json
+  rescue Stripe::StripeError => e
+    status 400
+    log_info("Error creating PaymentIntent: #{e.message}")
+  end
+end
+
+post '/capture_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
     status 400
@@ -126,20 +148,6 @@ post '/create_payment_intent' do
   rescue Stripe::StripeError => e
     status 400
     log_info("Error capturing PaymentIntent: #{e.message}")
-  end
-  
-  begin
-    intent = Stripe::PaymentIntent.create({
-      amount: params[:amount],
-      currency: params[:currency],
-      payment_method_types: ['card_present'],
-      capture_method: 'manual',   # <-- AJOUT
-      # capture_method: 'manual',   # ← à décommenter et ajouter
-    })
-    { client_secret: intent.client_secret }.to_json
-  rescue Stripe::StripeError => e
-    status 400
-    log_info("Error creating PaymentIntent: #{e.message}")
   end
 end
 
