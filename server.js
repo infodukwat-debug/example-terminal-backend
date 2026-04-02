@@ -13,7 +13,7 @@ app.post('/connection_token', async (req, res) => {
     const token = await stripe.terminal.connectionTokens.create();
     res.json({ secret: token.secret });
   } catch (err) {
-    console.error(err);
+    console.error('Erreur connection_token:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -30,16 +30,17 @@ app.post('/create_payment_intent', async (req, res) => {
       payment_method_types: ['card_present'],
       capture_method: 'manual',
     });
+    console.log(`PaymentIntent créé: ${intent.id} - ${intent.amount} ${intent.currency}`);
     res.json({ client_secret: intent.client_secret });
   } catch (err) {
-    console.error(err);
+    console.error('Erreur create_payment_intent:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Nouvel endpoint pour augmenter le montant avant capture
 app.post('/update_payment_intent_amount', async (req, res) => {
   const { payment_intent_id, new_amount } = req.body;
+  console.log(`Requête reçue pour update: ${payment_intent_id} -> ${new_amount}`);
   if (!payment_intent_id || !new_amount) {
     return res.status(400).json({ error: 'Missing payment_intent_id or new_amount' });
   }
@@ -47,9 +48,10 @@ app.post('/update_payment_intent_amount', async (req, res) => {
     const intent = await stripe.paymentIntents.update(payment_intent_id, {
       amount: parseInt(new_amount),
     });
+    console.log(`Montant mis à jour pour ${payment_intent_id} : ${intent.amount}`);
     res.json(intent);
   } catch (err) {
-    console.error(err);
+    console.error('Erreur update_payment_intent_amount:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -61,9 +63,10 @@ app.post('/capture_payment_intent', async (req, res) => {
   }
   try {
     const intent = await stripe.paymentIntents.capture(payment_intent_id);
+    console.log(`PaymentIntent capturé: ${intent.id} - montant final ${intent.amount}`);
     res.json(intent);
   } catch (err) {
-    console.error(err);
+    console.error('Erreur capture_payment_intent:', err);
     res.status(500).json({ error: err.message });
   }
 });
