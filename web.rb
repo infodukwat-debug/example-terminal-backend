@@ -3,6 +3,7 @@ require 'stripe'
 require 'dotenv'
 require 'json'
 require 'sinatra/cross_origin'
+require 'mail'
 
 configure do
   enable :cross_origin
@@ -22,6 +23,19 @@ end
 Dotenv.load
 Stripe.api_key = ENV['STRIPE_ENV'] == 'production' ? ENV['STRIPE_SECRET_KEY'] : ENV['STRIPE_TEST_SECRET_KEY']
 Stripe.api_version = '2020-03-02'
+
+# Configuration du mail (SMTP)
+Mail.defaults do
+  delivery_method :smtp, {
+    address: ENV['SMTP_ADDRESS'] || 'smtp.gmail.com',
+    port: ENV['SMTP_PORT'] || 587,
+    domain: ENV['SMTP_DOMAIN'] || 'example.com',
+    user_name: ENV['SMTP_USERNAME'],
+    password: ENV['SMTP_PASSWORD'],
+    authentication: 'plain',
+    enable_starttls_auto: true
+  }
+end
 
 def log_info(message)
   puts "\n" + message + "\n\n"
@@ -113,7 +127,7 @@ post '/create_payment_intent' do
       amount: amount.to_i,
       currency: currency,
       payment_method_types: payment_method_types,
-      capture_method: 'automatic',   # Changez en 'manual' si vous voulez préautoriser
+      capture_method: 'automatic',
       description: description
     })
     content_type :json
@@ -129,7 +143,6 @@ post '/create_payment_intent' do
   end
 end
 
-# Route pour capturer un PaymentIntent (si vous utilisez capture_method: 'manual')
 post '/capture_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -165,7 +178,6 @@ post '/capture_payment_intent' do
   end
 end
 
-# Route pour mettre à jour le montant (non utilisée dans le nouveau flux, mais conservée)
 post '/update_payment_intent_amount' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -202,7 +214,6 @@ post '/update_payment_intent_amount' do
   end
 end
 
-# Liste des emplacements (nécessaire pour l'application)
 get '/list_locations' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -246,7 +257,6 @@ post '/create_location' do
   return location.to_json
 end
 
-# Routes supplémentaires (non utilisées directement mais conservées pour compatibilité)
 post '/create_setup_intent' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -349,4 +359,49 @@ post '/cancel_payment_intent' do
   log_info("PaymentIntent successfully canceled: #{id}")
   status 200
   return {:intent => payment_intent.id, :secret => payment_intent.client_secret}.to_json
+end
+
+# ============================================================
+# Route pour l'envoi des emails (reçu et notification)
+# ============================================================
+post '/send_emails' do
+  content_type :json
+  request_body = JSON.parse(request.body.read)
+  email = request_body['email']
+  wantReceipt = request_body['wantReceipt']
+  wantNotification = request_body['wantNotification']
+  productName = request_body['productName']
+  durationChosen = request_body['durationChosen']
+  actualDuration = request_body['actualDuration']
+  extraMinutes = request_body['extraMinutes']
+  totalAmount = request_body['totalAmount']
+  currency = request_body['currency']
+  paymentIntentId = request_body['paymentIntentId']
+
+  begin
+    if wantReceipt
+      receipt_body = "Merci pour votre utilisation.\n\nProduit: #{productName}\nDurée choisie: #{durationChosen} min\nTemps réel: #{actualDuration} min\nMinutes supplémentaires: #{extraMinutes}\nTotal payé: #{totalAmount} #{currency}\nID paiement: #{paymentIntentId}"
+      Mail.deliver do
+        to email
+        from ENV['SMTP_FROM'] || 'noreply@qnook.com'
+        subject "Votre reçu Qnook"
+        body receipt_body
+      end
+    end
+
+    if wantNotification
+      notification_body = "Votre session Qnook est terminée. Merci de votre visite."
+      Mail.deliver do
+        to email
+        from ENV['SMTP_FROM'] || 'noreply@qnook.com'
+        subject "Fin de votre session Qnook"
+        body notification_body
+      end
+    end
+
+    { success: true }.to_json
+  rescue => e
+    status 500
+    { error: e.message }.to_json
+  end
 end
