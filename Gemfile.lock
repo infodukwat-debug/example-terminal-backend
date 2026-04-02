@@ -2,8 +2,6 @@ GEM
   remote: https://rubygems.org/
   specs:
     dotenv (2.8.1)
-    encrypted_cookie (0.0.5)
-      rack (>= 1.0.0)
     json (2.7.2)
     multi_json (1.15.0)
     mustermann (3.0.0)
@@ -29,7 +27,6 @@ PLATFORMS
 
 DEPENDENCIES
   dotenv
-  encrypted_cookie
   json
   puma
   sinatra
