@@ -3,7 +3,6 @@ require 'stripe'
 require 'dotenv'
 require 'json'
 require 'sinatra/cross_origin'
-require 'mail'
 
 configure do
   enable :cross_origin
@@ -23,19 +22,6 @@ end
 Dotenv.load
 Stripe.api_key = ENV['STRIPE_ENV'] == 'production' ? ENV['STRIPE_SECRET_KEY'] : ENV['STRIPE_TEST_SECRET_KEY']
 Stripe.api_version = '2020-03-02'
-
-# Configuration du mail (SMTP)
-Mail.defaults do
-  delivery_method :smtp, {
-    address: ENV['SMTP_ADDRESS'] || 'smtp.gmail.com',
-    port: ENV['SMTP_PORT'] || 587,
-    domain: ENV['SMTP_DOMAIN'] || 'example.com',
-    user_name: ENV['SMTP_USERNAME'],
-    password: ENV['SMTP_PASSWORD'],
-    authentication: 'plain',
-    enable_starttls_auto: true
-  }
-end
 
 def log_info(message)
   puts "\n" + message + "\n\n"
@@ -362,7 +348,7 @@ post '/cancel_payment_intent' do
 end
 
 # ============================================================
-# Route pour l'envoi des emails (reçu et notification)
+# Route pour l'envoi des emails (via service Node.js)
 # ============================================================
 post '/send_emails' do
   content_type :json
@@ -378,25 +364,32 @@ post '/send_emails' do
   currency = request_body['currency']
   paymentIntentId = request_body['paymentIntentId']
 
+  email_service_url = ENV['EMAIL_SERVICE_URL'] || 'https://qnook-email-service.onrender.com/send-email'
+
+  require 'net/http'
+  require 'uri'
+
+  def send_email_via_service(to, subject, body, service_url)
+    uri = URI.parse(service_url)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == 'https')
+    request = Net::HTTP::Post.new(uri.path, { 'Content-Type' => 'application/json' })
+    request.body = { to: to, subject: subject, text: body }.to_json
+    response = http.request(request)
+    unless response.is_a?(Net::HTTPSuccess)
+      raise "Email service responded with #{response.code}: #{response.body}"
+    end
+  end
+
   begin
     if wantReceipt
       receipt_body = "Merci pour votre utilisation.\n\nProduit: #{productName}\nDurée choisie: #{durationChosen} min\nTemps réel: #{actualDuration} min\nMinutes supplémentaires: #{extraMinutes}\nTotal payé: #{totalAmount} #{currency}\nID paiement: #{paymentIntentId}"
-      Mail.deliver do
-        to email
-        from ENV['SMTP_FROM'] || 'noreply@qnook.com'
-        subject "Votre reçu Qnook"
-        body receipt_body
-      end
+      send_email_via_service(email, "Votre reçu Qnook", receipt_body, email_service_url)
     end
 
     if wantNotification
       notification_body = "Votre session Qnook est terminée. Merci de votre visite."
-      Mail.deliver do
-        to email
-        from ENV['SMTP_FROM'] || 'noreply@qnook.com'
-        subject "Fin de votre session Qnook"
-        body notification_body
-      end
+      send_email_via_service(email, "Fin de votre session Qnook", notification_body, email_service_url)
     end
 
     { success: true }.to_json
