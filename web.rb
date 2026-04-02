@@ -4,9 +4,6 @@ require 'dotenv'
 require 'json'
 require 'sinatra/cross_origin'
 
-# Browsers require that external servers enable CORS when the server is at a different origin than the website.
-# https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-# This enables the requires CORS headers to allow the browser to make the requests from the JS Example App.
 configure do
   enable :cross_origin
 end
@@ -36,11 +33,6 @@ get '/' do
   send_file 'index.html'
 end
 
-get '/ping' do
-  content_type :json
-  { status: 'ok', timestamp: Time.now.to_i }.to_json
-end
-
 def validateApiKey
   if Stripe.api_key.nil? || Stripe.api_key.empty?
     return "Error: you provided an empty secret key. Please provide your test mode secret key. For more information, see https://stripe.com/docs/keys"
@@ -54,8 +46,6 @@ def validateApiKey
   return nil
 end
 
-# This endpoint registers a Verifone P400 reader to your Stripe account.
-# https://stripe.com/docs/terminal/readers/connecting/verifone-p400#register-reader
 post '/register_reader' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -75,24 +65,10 @@ post '/register_reader' do
   end
 
   log_info("Reader registered: #{reader.id}")
-
   status 200
-  # Note that returning the Stripe reader object directly creates a dependency between your
-  # backend's Stripe.api_version and your clients, making future upgrades more complicated.
-  # All clients must also be ready for backwards-compatible changes at any time:
-  # https://stripe.com/docs/upgrades#what-changes-does-stripe-consider-to-be-backwards-compatible
   return reader.to_json
 end
 
-# This endpoint creates a ConnectionToken, which gives the SDK permission
-# to use a reader with your Stripe account.
-# https://stripe.com/docs/terminal/sdk/js#connection-token
-# https://stripe.com/docs/terminal/sdk/ios#connection-token
-# https://stripe.com/docs/terminal/sdk/android#connection-token
-#
-# The example backend does not currently support connected accounts.
-# To create a ConnectionToken for a connected account, see
-# https://stripe.com/docs/terminal/features/connect#direct-connection-tokens
 post '/connection_token' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -112,13 +88,6 @@ post '/connection_token' do
   return {:secret => token.secret}.to_json
 end
 
-# This endpoint creates a PaymentIntent.
-# https://stripe.com/docs/terminal/payments#create
-#
-# The example backend does not currently support connected accounts.
-# To create a PaymentIntent for a connected account, see
-# https://stripe.com/docs/terminal/features/connect#direct-payment-intents-server-side
-
 post '/create_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -127,7 +96,7 @@ post '/create_payment_intent' do
   end
 
   begin
-    # Lire le corps JSON si présent, sinon utiliser les paramètres classiques
+    # Lire le JSON s'il est présent, sinon utiliser les paramètres classiques
     request_body = JSON.parse(request.body.read) rescue {}
     amount = request_body['amount'] || params[:amount]
     currency = request_body['currency'] || params[:currency]
@@ -157,9 +126,44 @@ post '/create_payment_intent' do
   end
 end
 
-# ============================================================
-# ROUTE CORRIGÉE POUR LA CAPTURE (renvoie toujours du JSON)
-# ============================================================
+# NOUVELLE ROUTE : mise à jour du montant avant capture
+post '/update_payment_intent_amount' do
+  validationError = validateApiKey
+  if !validationError.nil?
+    status 400
+    content_type :json
+    return { error: validationError }.to_json
+  end
+
+  begin
+    request_body = JSON.parse(request.body.read)
+    intent_id = request_body['payment_intent_id']
+    new_amount = request_body['new_amount']
+
+    if intent_id.nil? || new_amount.nil?
+      status 400
+      content_type :json
+      return { error: "Missing payment_intent_id or new_amount" }.to_json
+    end
+
+    intent = Stripe::PaymentIntent.update(intent_id, { amount: new_amount.to_i })
+    content_type :json
+    intent.to_json
+  rescue Stripe::StripeError => e
+    status 400
+    content_type :json
+    { error: "Stripe error: #{e.message}" }.to_json
+  rescue JSON::ParserError => e
+    status 400
+    content_type :json
+    { error: "Invalid JSON: #{e.message}" }.to_json
+  rescue => e
+    status 500
+    content_type :json
+    { error: "Internal error: #{e.message}" }.to_json
+  end
+end
+
 post '/capture_payment_intent' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -169,47 +173,32 @@ post '/capture_payment_intent' do
   end
 
   begin
-    # Lire et parser le JSON envoyé par le frontend
     request_body = JSON.parse(request.body.read)
     intent_id = request_body['payment_intent_id']
-    if intent_id.nil? || intent_id.empty?
+    if intent_id.nil?
       status 400
       content_type :json
       return { error: "Missing payment_intent_id" }.to_json
     end
 
-    # Capturer le PaymentIntent
     intent = Stripe::PaymentIntent.capture(intent_id)
     content_type :json
-    status 200
-    return intent.to_json
-
+    intent.to_json
   rescue Stripe::StripeError => e
     status 400
     content_type :json
-    puts "Stripe error: #{e.message}"
-    return { error: "Stripe error: #{e.message}" }.to_json
+    { error: "Stripe error: #{e.message}" }.to_json
   rescue JSON::ParserError => e
     status 400
     content_type :json
-    puts "Invalid JSON: #{e.message}"
-    return { error: "Invalid JSON: #{e.message}" }.to_json
-  rescue StandardError => e
+    { error: "Invalid JSON: #{e.message}" }.to_json
+  rescue => e
     status 500
     content_type :json
-    puts "Internal error: #{e.message}\n#{e.backtrace.join("\n")}"
-    return { error: "Internal error: #{e.message}" }.to_json
+    { error: "Internal error: #{e.message}" }.to_json
   end
 end
 
-# ============================================================
-# ROUTES UTILES POUR LA GESTION DES LIEUX (inchangées)
-# ============================================================
-
-# This endpoint lists the first 100 Locations. If you will have more than 100
-# Locations, you'll likely want to implement pagination in your application so that
-# you can efficiently fetch Locations as needed.
-# https://stripe.com/docs/api/terminal/locations
 get '/list_locations' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -230,8 +219,6 @@ get '/list_locations' do
   return locations.data.to_json
 end
 
-# This endpoint creates a Location.
-# https://stripe.com/docs/api/terminal/locations
 post '/create_location' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -255,12 +242,6 @@ post '/create_location' do
   return location.to_json
 end
 
-# ============================================================
-# ROUTES OPTIONNELLES (non utilisées dans le flux principal, mais conservées)
-# ============================================================
-
-# This endpoint creates a SetupIntent.
-# https://stripe.com/docs/api/setup_intents/create
 post '/create_setup_intent' do
   validationError = validateApiKey
   if !validationError.nil?
@@ -293,8 +274,6 @@ post '/create_setup_intent' do
   return {:intent => setup_intent.id, :secret => setup_intent.client_secret}.to_json
 end
 
-# This endpoint attaches a PaymentMethod to a Customer.
-# https://stripe.com/docs/terminal/payments/saving-cards#read-reusable-card
 post '/attach_payment_method_to_customer' do
   begin
     customer = lookupOrCreateExampleCustomer
@@ -329,9 +308,6 @@ def lookupOrCreateExampleCustomer
   end
 end
 
-# This endpoint updates the PaymentIntent represented by 'payment_intent_id'.
-# It currently only supports updating the 'receipt_email' property.
-# https://stripe.com/docs/api/payment_intents/update
 post '/update_payment_intent' do
   payment_intent_id = params["payment_intent_id"]
   if payment_intent_id.nil?
@@ -356,8 +332,6 @@ post '/update_payment_intent' do
   return {:intent => payment_intent.id, :secret => payment_intent.client_secret}.to_json
 end
 
-# This endpoint cancels a PaymentIntent.
-# https://stripe.com/docs/api/payment_intents/cancel
 post '/cancel_payment_intent' do
   begin
     id = params["payment_intent_id"]
